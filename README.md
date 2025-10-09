@@ -8,6 +8,7 @@ Age & gender classification (tùy chọn): thống kê nhân khẩu học.
 ROI analytics: xác định khu vực quan tâm (lối vào, quầy thanh toán, v.v).
 
 ## 2. Project Structure
+```
 project/
 ├─ main.py                 # Entry point chính
 ├─ config.py               # Cấu hình tập trung (đường dẫn, ngưỡng, model)
@@ -29,3 +30,4 @@ project/
 └─ ui/
    ├─ __init__.py
    └─ preview.py           # Quản lý hiển thị, phím tắt, record video
+```
