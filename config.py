@@ -3,14 +3,14 @@ from ultralytics.utils import ROOT
 
 class Config:
     # Đường dẫn
-    INPUT_PATH  = "input/test7.mp4"
+    INPUT_PATH  = "input/cam2.mp4"
     SAVE_DIR = "out/"
-    WEIGHTS = "weight/yolov8s.pt"
+    WEIGHTS = "weight/yolo11m.pt"
     #TRACKER_PATH = str(ROOT / "cfg" / "trackers" / "botsort.yaml")
-    TRACKER_PATH = "BotSort.yaml"
-    # Tham số
+    TRACKER_PATH = "BotSort_me.yaml"
+    
     CONFIDENCE = 0.5
-    IMGSZ = 960
+    IMGSZ = 1280
     CLASSES = [0]
     
     #Tracking parameters
@@ -18,15 +18,18 @@ class Config:
     VID_STRIDE = 1
     
     # GPU setting (Bỏ comment nếu có GPU)
-    # DEVICE = 0
-    # HALF = True
+    DEVICE = 0
+    HALF = True
     
     # UI parameters
+    DISPLAY_MODE = "web"
+    WEB_PORT = 5000
     PREVIEW_SCALE = 0.5
     SHOW_EVERY = 1
-    UPDATE_BAR_EVERY = 10
+    UPDATE_BAR_EVERY = 20
     WINDOW_WIDTH = 1280
     WINDOW_HEIGHT = 360
+    FRAME_DELAY = 0.01
     
     # Colors
     COLOR_BBOX = (255,255,255)
@@ -37,4 +40,3 @@ class Config:
     def ensure_dirs():
         """Tạo thư mục output nếu chưa có"""
         os.makedirs(Config.SAVE_DIR, exist_ok=True)
-    

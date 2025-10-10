@@ -3,6 +3,13 @@ weights/*.pth
 input/*.mp4
 out/*.mp4
 
+
 __pycache__/
 *.pyc 
 *.pyo
+*.pkl
+*.log
+
+venv/
+env/
+.venv/
