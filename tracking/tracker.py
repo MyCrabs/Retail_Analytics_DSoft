@@ -2,18 +2,16 @@
 Logic tracking chính - kết hợp tất cả components
 """
 import time
+import cv2
 from tqdm import tqdm
 from models.detector import PersonDetector
 from utils.video_io import VideoReader, VideoWriter
 from utils.drawing import DrawingUtils
+from utils.web_streamer import WebStreamer
 from ui.preview import PreviewWindow
 
 class PersonTracker:
     def __init__(self, config):
-        """
-        Args:
-            config: Config object
-        """
         self.config = config
         
         # Khởi tạo detector
@@ -36,12 +34,20 @@ class PersonTracker:
             fps=self.video_props['fps']
         )
         
+        # Khởi tạo web streamer nếu cần
+        web_streamer = None
+        if config.DISPLAY_MODE == 'web':
+            web_streamer = WebStreamer(port=config.WEB_PORT)
+            web_streamer.start()
+        
         # UI
         self.preview = PreviewWindow(
             width=min(config.WINDOW_WIDTH, self.video_props['width']),
             height=max(config.WINDOW_HEIGHT, 
                       int(min(config.WINDOW_WIDTH, self.video_props['width']) 
-                          * self.video_props['height'] / max(self.video_props['width'], 1)))
+                          * self.video_props['height'] / max(self.video_props['width'], 1))),
+            mode=config.DISPLAY_MODE,
+            web_streamer=web_streamer
         )
         
         # Metrics
@@ -113,7 +119,12 @@ class PersonTracker:
                 if self.frame_idx % self.config.SHOW_EVERY == 0:
                     key = self.preview.show(frame, scale=self.config.PREVIEW_SCALE)
                 else:
-                    key = self.preview.show(frame, scale=0)  # không hiển thị nhưng vẫn đọc phím
+                    # Không hiển thị nhưng vẫn đọc phím
+                    # Đối với web mode, vẫn cần update frame
+                    if self.config.DISPLAY_MODE == 'web':
+                        key = self.preview.show(frame, scale=self.config.PREVIEW_SCALE)
+                    else:
+                        key = cv2.waitKey(1) & 0xFF
                 
                 # Xử lý phím
                 action = self.preview.handle_key(key)
@@ -126,7 +137,8 @@ class PersonTracker:
                 elif action == 'pause':
                     if self.preview.pause_loop():
                         break
-                
+                if hasattr(self.config, 'FRAME_DELAY') and self.config.FRAME_DELAY > 0:
+                    time.sleep(self.config.FRAME_DELAY)
                 # Update progress bar (ít thường xuyên hơn)
                 status = "REC" if self.writer.is_recording() else "LIVE"
                 if pbar_total:
@@ -157,23 +169,23 @@ class PersonTracker:
         if not self.writer.is_recording():
             try:
                 self.writer.start()
-                print(f" Bắt đầu ghi → {self.writer.output_path}")
+                print(f"⏺ Bắt đầu ghi → {self.writer.output_path}")
             except RuntimeError as e:
-                print(f"Lỗi: {e}")
+                print(f"❌ Lỗi: {e}")
     
     def _stop_recording(self):
         """Dừng ghi video"""
         output_path = self.writer.stop()
         if output_path:
-            print(f" Dừng ghi → {output_path}")
+            print(f"⏹ Dừng ghi → {output_path}")
     
     def _cleanup(self, pbar, start_time):
         """Dọn dẹp resources"""
         output_path = self.writer.stop()
         if output_path:
-            print(f" Đã lưu: {output_path}")
+            print(f"✅ Đã lưu: {output_path}")
         else:
-            print("ℹ Không lưu file (LIVE only).")
+            print("ℹ️ Không lưu file (LIVE only).")
         
         pbar.close()
         dt_all = time.perf_counter() - start_time
