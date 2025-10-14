@@ -5,11 +5,24 @@ class Config:
     # Đường dẫn
     INPUT_PATH  = "input/cam2.mp4"
     SAVE_DIR = "out/"
-    WEIGHTS = "weight/yolo11m.pt"
+    PERSON_WEIGHTS = "weight/yolo11m.pt"
+    FACE_WEIGHTS = "weight/yolov8n-face-lindevs.pt"
+    HEAD_WEIGHTS = "weight/nano.pt"
     #TRACKER_PATH = str(ROOT / "cfg" / "trackers" / "botsort.yaml")
     TRACKER_PATH = "BotSort_me.yaml"
     
-    CONFIDENCE = 0.5
+    ENABLE_HEAD_DETECTION = False
+    ENABLE_FACE_DETECTION = False
+    
+    PERSON_CONFIDENCE = 0.5
+    HEAD_CONFIDENCE = 0.3
+    FACE_CONFIDENCE = 0.3
+    
+    PERSON_CLASS = [0]
+    HEAD_CLASS = [0]
+    FACE_CLASS = [0]
+    
+    
     IMGSZ = 1280
     CLASSES = [0]
     
@@ -29,9 +42,12 @@ class Config:
     UPDATE_BAR_EVERY = 20
     WINDOW_WIDTH = 1280
     WINDOW_HEIGHT = 360
-    FRAME_DELAY = 0.01
+    FRAME_DELAY = 0.00001
     
     # Colors
+    COLOR_PERSON = (0, 255, 0)      # Xanh lá - Person bbox
+    COLOR_HEAD = (255, 165, 0)      # Cam - Head bbox  
+    COLOR_FACE = (255, 0, 255)      # Tím - Face bbox
     COLOR_BBOX = (255,255,255)
     COLOR_RECORDING = (0,0,255)
     COLOR_LIVE = (0,255,0)

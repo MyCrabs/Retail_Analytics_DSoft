@@ -1,10 +1,7 @@
-﻿"""
-Logic tracking chính - kết hợp tất cả components
-"""
-import time
+﻿import time
 import cv2
 from tqdm import tqdm
-from models.detector import PersonDetector
+from models.detector import MultiModelDetector
 from utils.video_io import VideoReader, VideoWriter
 from utils.drawing import DrawingUtils
 from utils.web_streamer import WebStreamer
@@ -12,15 +9,14 @@ from ui.preview import PreviewWindow
 
 class PersonTracker:
     def __init__(self, config):
+        """
+        Args:
+            config: Config object
+        """
         self.config = config
         
-        # Khởi tạo detector
-        self.detector = PersonDetector(
-            weights_path=config.WEIGHTS,
-            tracker_config=config.TRACKER_PATH,
-            confidence=config.CONFIDENCE,
-            imgsz=config.IMGSZ
-        )
+        # Khởi tạo multi-model detector
+        self.detector = MultiModelDetector(config)
         
         # Đọc thông tin video
         self.video_reader = VideoReader(config.INPUT_PATH)
@@ -52,10 +48,33 @@ class PersonTracker:
         
         # Metrics
         self.frame_idx = 0
+        self.ema_fps = Noneweb_streamer = WebStreamer(port=config.WEB_PORT)
+        web_streamer.start()
+        
+        # UI
+        self.preview = PreviewWindow(
+            width=min(config.WINDOW_WIDTH, self.video_props['width']),
+            height=max(config.WINDOW_HEIGHT, 
+                      int(min(config.WINDOW_WIDTH, self.video_props['width']) 
+                          * self.video_props['height'] / max(self.video_props['width'], 1))),
+            mode=config.DISPLAY_MODE,
+            web_streamer=web_streamer
+        )
+        
+        # Metrics
+        self.frame_idx = 0
         self.ema_fps = None
         
     def run(self):
-        """Chạy tracking chính"""
+        """Chạy tracking chính với cascade detection"""
+        # Debug config
+        print(f"🔧 Config:")
+        print(f"   PREVIEW_SCALE: {self.config.PREVIEW_SCALE}")
+        print(f"   DISPLAY_MODE: {self.config.DISPLAY_MODE}")
+        print(f"   SHOW_EVERY: {self.config.SHOW_EVERY}")
+        print(f"   HEAD Detection: {'✅' if self.config.ENABLE_HEAD_DETECTION else '❌'}")
+        print(f"   FACE Detection: {'✅' if self.config.ENABLE_FACE_DETECTION else '❌'}")
+        
         total_frames = self.video_props['total_frames']
         pbar_total = total_frames if total_frames and total_frames > 0 else None
         
@@ -70,13 +89,8 @@ class PersonTracker:
             if hasattr(self.config, 'HALF'):
                 tracking_kwargs['half'] = self.config.HALF
             
-            for res in self.detector.track(
+            for res in self.detector.track_persons(
                 source=self.config.INPUT_PATH,
-                classes=self.config.CLASSES,
-                persist=self.config.PERSIST,
-                stream=True,
-                vid_stride=self.config.VID_STRIDE,
-                verbose=False,
                 **tracking_kwargs
             ):
                 t1 = time.perf_counter()
@@ -85,14 +99,58 @@ class PersonTracker:
                 # Lấy frame gốc
                 frame = res.orig_img
                 
-                # Parse detections và vẽ bboxes
-                xyxy, ids, confs = PersonDetector.parse_detections(res.boxes)
+                # Debug frame
+                if frame is None:
+                    print(f"⚠️ Frame {self.frame_idx} is None!")
+                    continue
+                if frame.size == 0:
+                    print(f"⚠️ Frame {self.frame_idx} is empty!")
+                    continue
                 
-                if len(xyxy) > 0:
-                    frame = DrawingUtils.draw_detections(
-                        frame, xyxy, ids, confs,
-                        color=self.config.COLOR_BBOX
+                # Parse person detections
+                person_xyxy, person_ids, person_confs = MultiModelDetector.parse_detections(res.boxes)
+                
+                # Counters
+                total_heads = 0
+                total_faces = 0
+                all_heads = []
+                all_faces = []
+                
+                # Cascade detection: Person → Head → Face
+                if len(person_xyxy) > 0:
+                    # Vẽ person boxes trước
+                    frame = DrawingUtils.draw_person_detections(
+                        frame, person_xyxy, person_ids, person_confs,
+                        color=self.config.COLOR_PERSON
                     )
+                    
+                    # Detect heads trong mỗi person
+                    if self.config.ENABLE_HEAD_DETECTION:
+                        for person_bbox in person_xyxy:
+                            heads = self.detector.detect_heads_in_person(frame, person_bbox)
+                            all_heads.extend(heads)
+                            total_heads += len(heads)
+                            
+                            # Detect faces trong mỗi head
+                            if self.config.ENABLE_FACE_DETECTION:
+                                for head_bbox in heads:
+                                    faces = self.detector.detect_faces_in_head(frame, head_bbox)
+                                    all_faces.extend(faces)
+                                    total_faces += len(faces)
+                    
+                    # Vẽ head boxes
+                    if all_heads:
+                        frame = DrawingUtils.draw_head_boxes(
+                            frame, all_heads,
+                            color=self.config.COLOR_HEAD
+                        )
+                    
+                    # Vẽ face boxes
+                    if all_faces:
+                        frame = DrawingUtils.draw_face_boxes(
+                            frame, all_faces,
+                            color=self.config.COLOR_FACE
+                        )
                 
                 # Tính FPS (EMA)
                 dt_proc = max(time.perf_counter() - t1, 1e-6)
@@ -100,12 +158,18 @@ class PersonTracker:
                 self.ema_fps = (inst_fps if self.ema_fps is None 
                                else 0.9 * self.ema_fps + 0.1 * inst_fps)
                 
-                # Vẽ HUD
+                # Vẽ HUD với stats
+                stats = {
+                    'persons': len(person_xyxy),
+                    'heads': total_heads,
+                    'faces': total_faces
+                }
                 frame = DrawingUtils.draw_hud(
                     frame,
                     is_recording=self.writer.is_recording(),
                     fps=self.ema_fps,
                     frame_idx=self.frame_idx,
+                    stats=stats,
                     color_rec=self.config.COLOR_RECORDING,
                     color_live=self.config.COLOR_LIVE
                 )
@@ -137,8 +201,11 @@ class PersonTracker:
                 elif action == 'pause':
                     if self.preview.pause_loop():
                         break
+                
+                # Delay để điều khiển tốc độ hiển thị
                 if hasattr(self.config, 'FRAME_DELAY') and self.config.FRAME_DELAY > 0:
                     time.sleep(self.config.FRAME_DELAY)
+                
                 # Update progress bar (ít thường xuyên hơn)
                 status = "REC" if self.writer.is_recording() else "LIVE"
                 if pbar_total:
@@ -146,7 +213,10 @@ class PersonTracker:
                         pbar.update(self.config.UPDATE_BAR_EVERY)
                         pbar.set_postfix({
                             "frame": self.frame_idx, 
-                            "fps": f"{self.ema_fps:.1f}", 
+                            "fps": f"{self.ema_fps:.1f}",
+                            "P": len(person_xyxy),
+                            "H": total_heads,
+                            "F": total_faces,
                             "save": status
                         })
                 else:
@@ -154,12 +224,15 @@ class PersonTracker:
                         pbar.update(self.config.UPDATE_BAR_EVERY)
                         pbar.set_postfix({
                             "frame": self.frame_idx, 
-                            "fps": f"{self.ema_fps:.1f}", 
+                            "fps": f"{self.ema_fps:.1f}",
+                            "P": len(person_xyxy),
+                            "H": total_heads,
+                            "F": total_faces,
                             "save": status
                         })
         
         except KeyboardInterrupt:
-            print(" Dừng sớm (Ctrl+C).")
+            print("⏹ Dừng sớm (Ctrl+C).")
         
         finally:
             self._cleanup(pbar, t0)
