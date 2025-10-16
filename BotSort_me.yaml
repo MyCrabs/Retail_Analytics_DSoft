@@ -1,10 +1,11 @@
 ﻿# Ultralytics - BoT SORT tracker
 tracker_type: botsort
-track_high_thresh: 0.35 #(float) Ngưỡng điểm tin cậy đầu tiên để kết nối detection với track
-track_low_thresh: 0.05 # Ngưỡng thứ hai => Cho phép phục hồi track bị mất tạm thời (vd vật bị che khuất)
-new_track_thresh: 0.2 # Ngưỡng confidence để tạo track mới
-track_buffer: 70 # Số frame tối đa giữ lại thông tin của các frame "mất dấu tạm thời" trc khi xoá
-match_thresh: 0.7 # Ngưỡng IoU/ cost matrix dùng khi ghép detection-track
+# tăng khả năng khôi phục ID sau occlusion
+track_high_thresh: 0.4        # mặc định 0.5 → giảm nhẹ để tracker “chịu khó” nối track
+track_low_thresh: 0.05         # giảm để chấp nhận track yếu khi vật thể vừa xuất hiện lại
+new_track_thresh: 0.7          # tăng nhẹ để hạn chế tạo ID mới khi confidence chưa chắc
+track_buffer: 90               # tăng số frame lưu lại track cũ (mặc định 30–60)
+match_thresh: 0.8              # tăng nhẹ để tracker kiên định hơn khi matching IoU
 fuse_score: True # Kết hợp score của detector với IoU
 
 gmc_method: None  # sparseOptFlow Bù chuyển động toàn cục fo camera di chuyển
@@ -12,4 +13,4 @@ gmc_method: None  # sparseOptFlow Bù chuyển động toàn cục fo camera di 
 proximity_thresh: 0.3 # Ngưỡng IoU tối thiểU giữa 2 track để coi là gần nhau và cần xét reID
 appearance_thresh: 0.6 # Ngưỡng tương đồng đặc trưng giữa 2 vector reID
 with_reid: True
-model: auto 
+model: auto
