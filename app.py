@@ -5,10 +5,11 @@ import datetime
 import csv
 from flask import Flask, Response
 
-VIDEO_PATH = "input/cam2.mp4"
+VIDEO_PATH = "input/cam1_2.mp4"
 MODEL_PATH = "weight/yolo11m.pt"
 TRACKER_YAML = "BotSort_me.yaml"
-ROI_POINTS = np.array([[1257,664], [1769,811], [1716,1200], [959,1200]])
+ROI_POINTS = np.array([[136,600], [1094,600], [1094,800], [136,800]]) # Cam1
+#ROI_POINTS = np.array([[1257,664], [1769,811], [1716,1200], [959,1200]]) # cam2
 OUTPUT_DIR = "out/"
 CONF_THRESH = 0.5
 
@@ -213,7 +214,3 @@ def index():
 if __name__ == "__main__":
     app.run(host='0.0.0.0', port = 1909)
         
-        
-        
-    
-
