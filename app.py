@@ -4,10 +4,10 @@ import numpy as np
 import datetime
 import csv
 from flask import Flask, Response
-from deepface import DeepFace
+from openvino.runtime import Core
 
 VIDEO_PATH = "input/cam2_2.mp4"
-MODEL_PATH = "weight/yolo11m.pt"
+MODEL_PATH = "weight/yolov8s.pt"
 TRACKER_YAML = "BotSort_me.yaml"
 #ROI_POINTS = np.array([[136,600], [1094,600], [1094,800], [136,800]]) # Cam1
 ROI_POINTS = np.array([[1257,664], [1769,811], [1716,1200], [959,1200]]) # cam2
@@ -20,6 +20,37 @@ FACE_IMGSZ = 640
 FACE_EVERY_N_FRAMES = 1
 
 app = Flask(__name__)
+
+core = Core()
+model_path = "weight/age-gender-recognition-retail-0013.xml"
+compiled_model = core.compile_model(model_path, "CPU")
+
+# Lấy output layer
+age_output = compiled_model.output(0)     # age_conv3
+gender_output = compiled_model.output(1)  # prob
+
+def predict_age_gender(face_crop):
+    try:
+        # Resize đúng input model: 62x62
+        img = cv2.resize(face_crop, (62, 62))
+        img = img.transpose((2, 0, 1))[None, :]  # BGR → NCHW
+        img = img.astype(np.float32)
+
+        # Run inference
+        result = compiled_model([img])
+
+        age = int(round(float(result[age_output][0][0][0][0] * 100)))
+        prob = float(result[gender_output][0][0][0][0])
+        gender = "Female" if prob > 0.5 else "Male"
+        gender_conf = abs(prob - 0.5) * 2
+        if gender_conf < 0.3:
+            return None, None# độ tin cậy giới tính
+
+        return age, gender
+
+    except Exception as e:
+        print("OpenVINO age-gender error:", e)
+        return None, None
 
 def get_output_name():
     time_now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -147,111 +178,108 @@ def generate_frames():
     cap = cv2.VideoCapture(VIDEO_PATH)
     if not cap.isOpened():
         raise RuntimeError(f"Error: Khong the mo duoc video {VIDEO_PATH}")
+
     w, h, fps, frame_count = get_video_in4(cap)
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    roi_poly = np.array(ROI_POINTS, np.int32).reshape((-1,1,2))
+    roi_poly = np.array(ROI_POINTS, np.int32).reshape((-1, 1, 2))
     tracker_data = {}
     frame_idx = 0
     output_path = get_output_name()
-    writer = cv2.VideoWriter(output_path, fourcc, fps, (w,h))
-
-    # cache lưu gender + age cho từng người
-    person_info_cache = {}  # tid -> {'gender':..., 'age':...}
+    writer = cv2.VideoWriter(output_path, fourcc, fps, (w, h))
+    person_info_cache = {}
 
     while True:
         ret, frame = cap.read()
         if not ret:
             break
-        results = model.track(
-            frame,
-            persist=True,
-            tracker = TRACKER_YAML,
-            conf = CONF_THRESH,
-            classes = [0]
-        )
-        try:
-            res0 = results[0]
-        except Exception:
-            res_list = list(results)
-            res0 = res_list[0] if len(res_list) > 0 else None
+
+        results = model.track(frame, persist=True, tracker=TRACKER_YAML, conf=CONF_THRESH, classes=[0])
+        if not results or not hasattr(results[0], "boxes"):
+            continue
 
         annotated_frame = frame.copy()
-        face_boxes_by_tid = {}
 
-        if res0 is not None and hasattr(res0, 'boxes') and res0.boxes is not None:
-            for box in res0.boxes:
-                tid = get_box_id(box)
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                cx, cy = int((x1+x2)/2), int(y2)
-                inside = cv2.pointPolygonTest(roi_poly, (cx,cy), False) >= 0
-                update_roi_status(tid, inside, frame_idx, tracker_data)
+        for box in results[0].boxes:
+            tid = get_box_id(box)
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            cx, cy = int((x1 + x2) / 2), int(y2)
+            inside = cv2.pointPolygonTest(roi_poly, (cx, cy), False) >= 0
+            update_roi_status(tid, inside, frame_idx, tracker_data)
 
-                # Chỉ nhận dạng khuôn mặt khi người trong ROI
-                if inside and (frame_idx % FACE_EVERY_N_FRAMES == 0):
-                    face_box = detect_face(face_model, frame, x1,y1,x2,y2,w,h)
-                    if face_box:
-                        face_boxes_by_tid[tid] = face_box
-                        fx1, fy1, fx2, fy2 = face_box
-                        face_crop = frame[fy1:fy2, fx1:fx2]
+            info = person_info_cache.setdefault(
+                tid, {"ages": [], "genders": [], "final_age": None, "final_gender": None}
+            )
 
-                        if face_crop.size != 0:
-                            try:
-                                # Nếu chưa có trong cache → chạy DeepFace
-                                if tid not in person_info_cache:
-                                    res = DeepFace.analyze(
-                                        face_crop,
-                                        actions=["age", "gender"],
-                                        detector_backend="opencv",
-                                        enforce_detection=False
-                                    )
-                                    gender_label = res[0]["dominant_gender"]
-                                    age_label = int(res[0]["age"])
-                                    person_info_cache[tid] = {
-                                        "gender": gender_label,
-                                        "age": age_label
-                                    }
-                                else:
-                                    gender_label = person_info_cache[tid]["gender"]
-                                    age_label = person_info_cache[tid]["age"]
-                            except Exception as e:
-                                gender_label = ""
-                                age_label = ""
-                                print("DeepFace error:", e)
-                        else:
-                            gender_label = ""
-                            age_label = ""
-                    else:
-                        gender_label = person_info_cache.get(tid, {}).get("gender", "")
-                        age_label = person_info_cache.get(tid, {}).get("age", "")
-                else:
-                    # Nếu ngoài ROI hoặc không nhận được khuôn mặt
-                    gender_label = person_info_cache.get(tid, {}).get("gender", "")
-                    age_label = person_info_cache.get(tid, {}).get("age", "")
+            if inside:
+                face_box = detect_face(face_model, frame, x1, y1, x2, y2, w, h)
+                if face_box:
+                    fx1, fy1, fx2, fy2 = face_box
+                    cv2.rectangle(annotated_frame, (fx1, fy1), (fx2, fy2), (0, 255, 255), 2)
+                    face_crop = frame[fy1:fy2, fx1:fx2]
 
-                # Vẽ box người
-                color = (255,255,255) if inside else (255,0,0)
-                cv2.rectangle(annotated_frame, (x1,y1), (x2,y2), color, 2)
-                label_text = f"ID:{tid}  {gender_label}, {age_label}y"
-                cv2.putText(annotated_frame, label_text, (x1, y1 - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                    if face_crop.size != 0 and len(info["ages"]) < 10:
+                        age_pred, gender_pred = predict_age_gender(face_crop)
+                        if age_pred is not None:
+                            info["ages"].append(age_pred)
+                            info["genders"].append(gender_pred)
+                            if len(info["ages"]) == 10:
+                                avg_age = int(round(sum(info["ages"]) / len(info["ages"])))
+                                mode_gender = max(set(info["genders"]), key=info["genders"].count)
+                                info["final_age"] = avg_age
+                                info["final_gender"] = mode_gender
 
-        # Vẽ ROI
-        cv2.polylines(annotated_frame, [roi_poly], isClosed=True, color=(0,255,0), thickness=2)
+            # --- Gán nhãn cuối cùng ---
+            gender_label = info["final_gender"] if info["final_gender"] else ""
+            age_label = str(info["final_age"]) if info["final_age"] else ""
+
+            # --- Màu box theo giới tính ---
+            if gender_label == "Male":
+                color = (255, 180, 0)      # Nam: xanh cam
+                g_short = "M"
+            elif gender_label == "Female":
+                color = (255, 0, 255)      # Nữ: hồng
+                g_short = "F"
+            else:
+                color = (200, 200, 200)    # Chưa nhận: xám
+                g_short = ""
+
+            # --- Gộp text hiển thị ---
+            if g_short and age_label:
+                info_text = f"{g_short}-{age_label}"
+            elif g_short:
+                info_text = g_short
+            elif age_label:
+                info_text = f"{age_label}y"
+            else:
+                info_text = ""
+
+            label_text = f"ID:{tid}"
+            if info_text:
+                label_text += f" | {info_text}"
+
+            # --- Overlay bán trong suốt phía trên box ---
+            overlay = annotated_frame.copy()
+            cv2.rectangle(overlay, (x1, y1 - 25), (x1 + 100, y1), color, -1)
+            cv2.addWeighted(overlay, 0.4, annotated_frame, 0.6, 0, annotated_frame)
+
+            # --- Vẽ box và text ---
+            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
+            cv2.putText(annotated_frame, label_text, (x1 + 5, y1 - 8),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+        # --- Vẽ ROI ---
+        cv2.polylines(annotated_frame, [roi_poly], True, (0, 255, 0), 2)
         writer.write(annotated_frame)
+
+        # --- Gửi frame ra stream ---
         ret2, buffer = cv2.imencode(".jpg", annotated_frame)
-        frame_bytes = buffer.tobytes()
-        yield(b"--frame\r\n"
-              b'Content-Type: image/jpeg\r\n\r\n'+frame_bytes+b'\r\n')
+        yield (b"--frame\r\n"
+               b"Content-Type: image/jpeg\r\n\r\n" + buffer.tobytes() + b"\r\n")
+
         frame_idx += 1
 
     cap.release()
     writer.release()
-    for tid, data in tracker_data.items():
-        if data.get('inside') and data.get('enter_frame') is not None:
-            data['total_frames'] += (frame_idx - data['enter_frame'])
-            data['inside'] = False
-            data['enter_frame'] = None
-    save_tracker_to_csv(tracker_data, fps, output_path)
 
     
 @app.route('/')

@@ -1,5 +1,5 @@
 ﻿# Ultralytics - BoT SORT tracker
-tracker_type: botsort
+tracker_type: bytetrack
 # tăng khả năng khôi phục ID sau occlusion
 track_high_thresh: 0.4        # mặc định 0.5 → giảm nhẹ để tracker “chịu khó” nối track
 track_low_thresh: 0.05         # giảm để chấp nhận track yếu khi vật thể vừa xuất hiện lại
