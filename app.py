@@ -4,19 +4,20 @@ import numpy as np
 import datetime
 import csv
 from flask import Flask, Response
+from deepface import DeepFace
 
-VIDEO_PATH = "input/cam1_2.mp4"
+VIDEO_PATH = "input/cam2_2.mp4"
 MODEL_PATH = "weight/yolo11m.pt"
 TRACKER_YAML = "BotSort_me.yaml"
-ROI_POINTS = np.array([[136,600], [1094,600], [1094,800], [136,800]]) # Cam1
-#ROI_POINTS = np.array([[1257,664], [1769,811], [1716,1200], [959,1200]]) # cam2
+#ROI_POINTS = np.array([[136,600], [1094,600], [1094,800], [136,800]]) # Cam1
+ROI_POINTS = np.array([[1257,664], [1769,811], [1716,1200], [959,1200]]) # cam2
 OUTPUT_DIR = "out/"
 CONF_THRESH = 0.5
 
 FACE_MODEL = "weight/yolov8n-face.pt"
 FACE_CONF = 0.5
 FACE_IMGSZ = 640
-FACE_EVERY_N_FRAMES = 3
+FACE_EVERY_N_FRAMES = 1
 
 app = Flask(__name__)
 
@@ -149,10 +150,14 @@ def generate_frames():
     w, h, fps, frame_count = get_video_in4(cap)
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     roi_poly = np.array(ROI_POINTS, np.int32).reshape((-1,1,2))
-    tracker_data = {}  # tid -> {total_frames:int, inside:bool, enter_frame:int or None}
+    tracker_data = {}
     frame_idx = 0
     output_path = get_output_name()
     writer = cv2.VideoWriter(output_path, fourcc, fps, (w,h))
+
+    # cache lưu gender + age cho từng người
+    person_info_cache = {}  # tid -> {'gender':..., 'age':...}
+
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -167,11 +172,12 @@ def generate_frames():
         try:
             res0 = results[0]
         except Exception:
-            # fallback: try to get first element
             res_list = list(results)
             res0 = res_list[0] if len(res_list) > 0 else None
+
         annotated_frame = frame.copy()
         face_boxes_by_tid = {}
+
         if res0 is not None and hasattr(res0, 'boxes') and res0.boxes is not None:
             for box in res0.boxes:
                 tid = get_box_id(box)
@@ -179,32 +185,74 @@ def generate_frames():
                 cx, cy = int((x1+x2)/2), int(y2)
                 inside = cv2.pointPolygonTest(roi_poly, (cx,cy), False) >= 0
                 update_roi_status(tid, inside, frame_idx, tracker_data)
+
+                # Chỉ nhận dạng khuôn mặt khi người trong ROI
                 if inside and (frame_idx % FACE_EVERY_N_FRAMES == 0):
                     face_box = detect_face(face_model, frame, x1,y1,x2,y2,w,h)
-                    if face_box: face_boxes_by_tid[tid] = face_box   
-        annotated_frame = draw_box(
-            annotated_frame, [res0] if res0 is not None else [type('R', (), {'boxes': []})()],
-            roi_poly, tracker_data,
-            frame_idx, fps,
-            face_boxes_by_tid=face_boxes_by_tid)
-        #---- Ve vung ROI ----
-        cv2.polylines(annotated_frame, [roi_poly], isClosed=True, color = (0,255,0), thickness=2)
+                    if face_box:
+                        face_boxes_by_tid[tid] = face_box
+                        fx1, fy1, fx2, fy2 = face_box
+                        face_crop = frame[fy1:fy2, fx1:fx2]
+
+                        if face_crop.size != 0:
+                            try:
+                                # Nếu chưa có trong cache → chạy DeepFace
+                                if tid not in person_info_cache:
+                                    res = DeepFace.analyze(
+                                        face_crop,
+                                        actions=["age", "gender"],
+                                        detector_backend="opencv",
+                                        enforce_detection=False
+                                    )
+                                    gender_label = res[0]["dominant_gender"]
+                                    age_label = int(res[0]["age"])
+                                    person_info_cache[tid] = {
+                                        "gender": gender_label,
+                                        "age": age_label
+                                    }
+                                else:
+                                    gender_label = person_info_cache[tid]["gender"]
+                                    age_label = person_info_cache[tid]["age"]
+                            except Exception as e:
+                                gender_label = ""
+                                age_label = ""
+                                print("DeepFace error:", e)
+                        else:
+                            gender_label = ""
+                            age_label = ""
+                    else:
+                        gender_label = person_info_cache.get(tid, {}).get("gender", "")
+                        age_label = person_info_cache.get(tid, {}).get("age", "")
+                else:
+                    # Nếu ngoài ROI hoặc không nhận được khuôn mặt
+                    gender_label = person_info_cache.get(tid, {}).get("gender", "")
+                    age_label = person_info_cache.get(tid, {}).get("age", "")
+
+                # Vẽ box người
+                color = (255,255,255) if inside else (255,0,0)
+                cv2.rectangle(annotated_frame, (x1,y1), (x2,y2), color, 2)
+                label_text = f"ID:{tid}  {gender_label}, {age_label}y"
+                cv2.putText(annotated_frame, label_text, (x1, y1 - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
+        # Vẽ ROI
+        cv2.polylines(annotated_frame, [roi_poly], isClosed=True, color=(0,255,0), thickness=2)
         writer.write(annotated_frame)
         ret2, buffer = cv2.imencode(".jpg", annotated_frame)
         frame_bytes = buffer.tobytes()
         yield(b"--frame\r\n"
               b'Content-Type: image/jpeg\r\n\r\n'+frame_bytes+b'\r\n')
         frame_idx += 1
+
     cap.release()
-    writer.release() 
-    # finalize tracker_data: Cộng nốt thời gian của những người vẫn ở trong ROI khi video kết thúc
+    writer.release()
     for tid, data in tracker_data.items():
         if data.get('inside') and data.get('enter_frame') is not None:
             data['total_frames'] += (frame_idx - data['enter_frame'])
             data['inside'] = False
             data['enter_frame'] = None
-
     save_tracker_to_csv(tracker_data, fps, output_path)
+
     
 @app.route('/')
 def index():
