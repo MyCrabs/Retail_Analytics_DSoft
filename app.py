@@ -4,7 +4,7 @@ import numpy as np
 import datetime
 import csv
 from flask import Flask, Response
-from openvino.runtime import Core
+from openvino import Core
 
 VIDEO_PATH = "input/cam2_2.mp4"
 MODEL_PATH = "weight/yolov8s.pt"
@@ -132,8 +132,8 @@ def save_tracker_to_csv(tracker_data, fps, output_path):
             writer.writerow([tid, f"{secs:.2f}"])
 
 def detect_face(face_model, frame, x1, y1, x2, y2, w, h):
-    ex1, ey1, ex2, ey2 = expand_head_region(x1, y1, x2, y2, w, h)
-    crop = frame[ey1:ey2, ex1:ex2]
+    #ex1, ey1, ex2, ey2 = expand_head_region(x1, y1, x2, y2, w, h)
+    crop = frame[y1:y2, x1:x2]
     if crop.size == 0:
         return None
     fres = face_model.predict(crop, conf=FACE_CONF, imgsz=FACE_IMGSZ, verbose=False)[0]
@@ -146,10 +146,10 @@ def detect_face(face_model, frame, x1, y1, x2, y2, w, h):
     fx1, fy1, fx2, fy2 = fboxes[int(np.argmax(areas))]
 
     # Đổi về tọa độ gốc frame
-    g_fx1 = ex1 + fx1
-    g_fy1 = ey1 + fy1
-    g_fx2 = ex2 - (crop.shape[1] - fx2)
-    g_fy2 = ey2 - (crop.shape[0] - fy2)
+    g_fx1 = x1 + fx1
+    g_fy1 = y1 + fy1
+    g_fx2 = x1 + fx2
+    g_fy2 = y1 + fy2
 
     # Giới hạn lại
     g_fx1 = max(0, min(g_fx1, w - 1))
@@ -172,7 +172,7 @@ def update_roi_status(tid, inside, frame_idx, tracker_data):
         data['inside'] = False
         data['enter_frame'] = None
 
-def generate_frames():
+def main():
     model = YOLO(MODEL_PATH)
     face_model = YOLO(FACE_MODEL)
     cap = cv2.VideoCapture(VIDEO_PATH)
@@ -210,23 +210,23 @@ def generate_frames():
                 tid, {"ages": [], "genders": [], "final_age": None, "final_gender": None}
             )
 
-            if inside:
-                face_box = detect_face(face_model, frame, x1, y1, x2, y2, w, h)
-                if face_box:
-                    fx1, fy1, fx2, fy2 = face_box
-                    cv2.rectangle(annotated_frame, (fx1, fy1), (fx2, fy2), (0, 255, 255), 2)
-                    face_crop = frame[fy1:fy2, fx1:fx2]
+            #if inside:
+            face_box = detect_face(face_model, frame, x1, y1, x2, y2, w, h)
+            if face_box:
+                fx1, fy1, fx2, fy2 = face_box
+                cv2.rectangle(annotated_frame, (fx1, fy1), (fx2, fy2), (0, 255, 255), 2)
+                face_crop = frame[fy1:fy2, fx1:fx2]
 
-                    if face_crop.size != 0 and len(info["ages"]) < 10:
-                        age_pred, gender_pred = predict_age_gender(face_crop)
-                        if age_pred is not None:
-                            info["ages"].append(age_pred)
-                            info["genders"].append(gender_pred)
-                            if len(info["ages"]) == 10:
-                                avg_age = int(round(sum(info["ages"]) / len(info["ages"])))
-                                mode_gender = max(set(info["genders"]), key=info["genders"].count)
-                                info["final_age"] = avg_age
-                                info["final_gender"] = mode_gender
+                if face_crop.size != 0 and len(info["ages"]) < 10:
+                    age_pred, gender_pred = predict_age_gender(face_crop)
+                    if age_pred is not None:
+                        info["ages"].append(age_pred)
+                        info["genders"].append(gender_pred)
+                        if len(info["ages"]) == 10:
+                            avg_age = int(round(sum(info["ages"]) / len(info["ages"])))
+                            mode_gender = max(set(info["genders"]), key=info["genders"].count)
+                            info["final_age"] = avg_age
+                            info["final_gender"] = mode_gender
 
             # --- Gán nhãn cuối cùng ---
             gender_label = info["final_gender"] if info["final_gender"] else ""
@@ -284,7 +284,7 @@ def generate_frames():
     
 @app.route('/')
 def index():
-    return Response(generate_frames(),
+    return Response(main(),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
     
 if __name__ == "__main__":
