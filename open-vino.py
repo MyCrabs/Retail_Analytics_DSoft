@@ -2,13 +2,13 @@
 import cv2, os, csv, datetime, threading, queue
 import numpy as np
 from flask import Flask, Response
-from deepface import DeepFace
+from openvino import Core
 
 # ===================== CONFIG =====================
 VIDEO_PATH = "input/cam2_2.mp4"
-MODEL_PATH = "weight/yolov8s.pt"
+MODEL_PATH = "weight/yolo11n.pt"
 FACE_MODEL = "weight/yolov8s-face.pt"
-TRACKER_YAML = "BotSort_me.yaml"
+TRACKER_YAML = "botsort.yaml"
 ROI_POINTS = np.array([[1257,664], [1769,811], [1716,1200], [959,1200]]) # cam2
 
 OUTPUT_DIR = "out/"
@@ -19,6 +19,11 @@ FACE_QUEUE = queue.Queue(maxsize=20)  # hàng đợi ảnh gửi cho DeepFace
 
 app = Flask(__name__)
 
+ie = Core()
+age_gender_model = ie.read_model(model="weight/age-gender-recognition-retail-0013.xml")
+compiled_model = ie.compile_model(age_gender_model, device_name = "CPU")
+age_output = compiled_model.output("age_conv3") if "age_conv3" in [o.get_any_name() for o in compiled_model.outputs] else compiled_model.output("fc3_a")
+gender_output = compiled_model.output("prob")
 # ==================================================
 def get_output_name():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -58,30 +63,33 @@ def detect_face(face_model, frame, x1, y1, x2, y2, w, h):
 
 # ==================================================
 # === Thread riêng xử lý DeepFace (không chặn FPS) ===
-def deepface_worker(person_info_cache):
+def openvino_worker(person_info_cache):
     while True:
         try:
             tid, face_crop = FACE_QUEUE.get(timeout=5)
         except queue.Empty:
             continue
         try:
-            res = DeepFace.analyze(
-                face_crop, actions=['age','gender'],
-                enforce_detection=False, silent=True
-            )
-            if isinstance(res, list): res = res[0]
-            age = int(res['age'])
-            gender = "Male" if res['dominant_gender'] == "Man" else "Female"
-
+            face = cv2.resize(face_crop, (62,62))
+            face = face.transpose((2,0,1))  # HWC to CHW
+            face = np.expand_dims(face, axis=0)
+            result = compiled_model([face])
+            age_val = result[age_output][0][0][0][0] * 100
+            male_prob = result[gender_output][0][1][0][0]
+            gender = "Male" if male_prob > 0.5 else "Female"
+            age = int(round(age_val))
+            
             info = person_info_cache.setdefault(
-                tid, {"ages": [], "genders": [], "final_age": None, "final_gender": None}
+                tid, {"ages":[], "genders":[], "final_age":None, "final_gender":None}
             )
             if len(info["ages"]) < 10:
                 info["ages"].append(age)
                 info["genders"].append(gender)
                 if len(info["ages"]) == 10:
-                    info["final_age"] = int(round(sum(info["ages"]) / len(info["ages"])))
-                    info["final_gender"] = max(set(info["genders"]), key=info["genders"].count)
+                    avg_age = int(round(sum(info["ages"])/len(info["ages"])))
+                    mode_gender = max(set(info["genders"]), key=info["genders"].count)
+                    info["final_age"] = avg_age
+                    info["final_gender"] = mode_gender
         except Exception as e:
             print("DeepFace Error:", e)
 
@@ -172,8 +180,7 @@ def main():
     tracker_data = {}
     person_info_cache = {}
     frame_idx = 0
-    # start thread xử lý DeepFace
-    threading.Thread(target=deepface_worker, args=(person_info_cache,), daemon=True).start()
+    threading.Thread(target=openvino_worker, args=(person_info_cache,), daemon=True).start()
 
     while True:
         ok, frame = cap.read()

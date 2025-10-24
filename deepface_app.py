@@ -1,12 +1,11 @@
 ﻿from ultralytics import YOLO
-import cv2, os, csv, datetime, threading, queue, torch
+import cv2, os, csv, datetime, threading, queue
 import numpy as np
 from flask import Flask, Response
-from transformers import AutoImageProcessor, SiglipForImageClassification
-from PIL import Image
+from deepface import DeepFace
 
 # ===================== CONFIG =====================
-VIDEO_PATH = "input/cam1_2.mp4"
+VIDEO_PATH = "input/cam2_2.mp4"
 MODEL_PATH = "weight/yolo11n.pt"
 FACE_MODEL = "weight/yolov8s-face.pt"
 TRACKER_YAML = "botsort.yaml"
@@ -16,25 +15,7 @@ OUTPUT_DIR = "out/"
 CONF_THRESH = 0.5
 FACE_CONF = 0.5
 FACE_IMGSZ = 640
-FACE_QUEUE = queue.Queue(maxsize=20)  # hàng đợi ảnh gửi cho Hugging Face models
-
-# ===================== HUGGINGFACE MODELS =====================
-print("Loading Hugging Face models...")
-
-GENDER_MODEL_NAME = "prithivMLmods/Gender-Classifier-Mini"
-AGE_MODEL_NAME = "prithivMLmods/Age-Classification-SigLIP2"
-
-# load model + processor
-gender_processor = AutoImageProcessor.from_pretrained(GENDER_MODEL_NAME)
-age_processor = AutoImageProcessor.from_pretrained(AGE_MODEL_NAME)
-
-gender_model = SiglipForImageClassification.from_pretrained(GENDER_MODEL_NAME)
-age_model = SiglipForImageClassification.from_pretrained(AGE_MODEL_NAME)
-
-device = "cuda" #if torch.cuda.is_available() else "cpu"
-gender_model.to(device)
-age_model.to(device)
-print(f"Models loaded successfully on {device} ✅")
+FACE_QUEUE = queue.Queue(maxsize=20)  # hàng đợi ảnh gửi cho DeepFace
 
 app = Flask(__name__)
 
@@ -67,6 +48,8 @@ def detect_face(face_model, frame, x1, y1, x2, y2, w, h):
     fres = face_model.predict(crop, conf=FACE_CONF, imgsz=FACE_IMGSZ, verbose=False)[0]
     if len(fres.boxes) == 0:
         return None
+
+    # lấy mặt lớn nhất
     fboxes = [tuple(map(int, fb.xyxy[0])) for fb in fres.boxes]
     areas = [(x2 - x1)*(y2 - y1) for x1, y1, x2, y2 in fboxes]
     fx1, fy1, fx2, fy2 = fboxes[int(np.argmax(areas))]
@@ -74,48 +57,33 @@ def detect_face(face_model, frame, x1, y1, x2, y2, w, h):
     return (max(0,g_fx1), max(0,g_fy1), min(w-1,g_fx2), min(h-1,g_fy2))
 
 # ==================================================
-# === Thread riêng xử lý Age + Gender (Hugging Face) ===
-def huggingface_worker(person_info_cache):
-    age_labels = ["Child (0-12)", "Teenager (13-20)", "Adult (21-44)", "Middle-Age (45-64)", "Aged (65+)"]
-
+# === Thread riêng xử lý DeepFace (không chặn FPS) ===
+def deepface_worker(person_info_cache):
     while True:
         try:
             tid, face_crop = FACE_QUEUE.get(timeout=5)
         except queue.Empty:
             continue
-
         try:
-            img = Image.fromarray(face_crop).convert("RGB")
+            res = DeepFace.analyze(
+                face_crop, actions=['age','gender'],
+                enforce_detection=False, silent=True
+            )
+            if isinstance(res, list): res = res[0]
+            age = int(res['age'])
+            gender = "Male" if res['dominant_gender'] == "Man" else "Female"
 
-            # ===== Gender prediction =====
-            g_inputs = gender_processor(images=img, return_tensors="pt").to(device)
-            with torch.no_grad():
-                g_outputs = gender_model(**g_inputs)
-                g_probs = torch.nn.functional.softmax(g_outputs.logits, dim=1)
-                gender_idx = torch.argmax(g_probs).item()
-                gender = "Male" if gender_idx == 1 else "Female"
-
-            # ===== Age prediction =====
-            a_inputs = age_processor(images=img, return_tensors="pt").to(device)
-            with torch.no_grad():
-                a_outputs = age_model(**a_inputs)
-                a_probs = torch.nn.functional.softmax(a_outputs.logits, dim=1)
-                age_idx = torch.argmax(a_probs).item()
-                age_group = age_labels[age_idx]
-
-            # ===== Save info =====
             info = person_info_cache.setdefault(
                 tid, {"ages": [], "genders": [], "final_age": None, "final_gender": None}
             )
-            if len(info["ages"]) < 5:
-                info["ages"].append(age_group)
+            if len(info["ages"]) < 10:
+                info["ages"].append(age)
                 info["genders"].append(gender)
-                if len(info["ages"]) == 5:
-                    info["final_age"] = max(set(info["ages"]), key=info["ages"].count)
+                if len(info["ages"]) == 10:
+                    info["final_age"] = int(round(sum(info["ages"]) / len(info["ages"])))
                     info["final_gender"] = max(set(info["genders"]), key=info["genders"].count)
-
         except Exception as e:
-            print("HuggingFace Worker Error:", e)
+            print("DeepFace Error:", e)
 
 # ==================================================
 def update_roi_status(tid, inside, frame_idx, tracker_data, fps):
@@ -141,13 +109,12 @@ def save_tracker_to_csv(tracker_data, fps, output_path, person_info_cache):
     csv_path = os.path.splitext(output_path)[0] + ".csv"
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        writer.writerow(["ID", "Gender", "Age Group", "Entry Time", "Exit Time", "Dwell Time (s)"])
+        writer.writerow(["ID", "Gender", "Entry Time", "Exit Time", "Dwell Time (s)"])
         for tid, data in tracker_data.items():
             secs = data.get("total_frames", 0) / max(1.0, fps)
             gender = person_info_cache.get(tid, {}).get("final_gender", "")
-            age_group = person_info_cache.get(tid, {}).get("final_age", "")
             writer.writerow([
-                tid, gender, age_group,
+                tid, gender, 
                 data.get("entry_time",""), data.get("exit_time",""),
                 f"{secs:.2f}"
             ])
@@ -189,7 +156,7 @@ def proccess_frame(frame, res, face_model, tracker_data, person_info_cache, roi_
         age = info.get("final_age", "")
         label = f"ID:{tid}"
         if gender and age:
-            label += f" | {gender[:1]} - {age}"
+            label += f" | {gender[:-1]} - {age}"
         elif gender:
             label += f" | {gender[:1]}"
         elif age:
@@ -205,9 +172,8 @@ def main():
     tracker_data = {}
     person_info_cache = {}
     frame_idx = 0
-
-    # start thread xử lý Hugging Face models
-    threading.Thread(target=huggingface_worker, args=(person_info_cache,), daemon=True).start()
+    # start thread xử lý DeepFace
+    threading.Thread(target=deepface_worker, args=(person_info_cache,), daemon=True).start()
 
     while True:
         ok, frame = cap.read()
