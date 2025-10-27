@@ -1,15 +1,29 @@
-﻿weights/
+﻿# ================== Model & Data ==================
+weights/
 input/
 out/
 runs/
+*.pt
+*.onnx
+*.bin
+*.xml
+*.mp4
+*.avi
+*.mov
+*.jpg
+*.png
+*.jpeg
+*.csv
+*.zip
 
-
+# ================== Python cache & logs ==================
 __pycache__/
-*.pyc 
+*.pyc
 *.pyo
 *.pkl
 *.log
-*.zip
+
+# ================== Virtual environments ==================
 venv/
 env/
 .venv/
