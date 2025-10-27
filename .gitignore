@@ -1,7 +1,7 @@
-﻿weights/*.pt
-weights/*.pth
-input/*.mp4
-out/*.mp4
+﻿weights/
+input/
+out/
+runs/
 
 
 __pycache__/
@@ -9,7 +9,9 @@ __pycache__/
 *.pyo
 *.pkl
 *.log
-
+*.zip
 venv/
 env/
 .venv/
+venv_tf12/
+.venv_tf12/
