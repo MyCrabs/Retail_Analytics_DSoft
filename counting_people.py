@@ -8,7 +8,7 @@ from ultralytics import YOLO
 VIDEO_PATH = "input/cam2_2.mp4"
 MODEL_PATH = "weights/yolo11m.pt"
 TRACKER_PATH = "BotSort_me.yaml"
-CONF_THRESH = 0.5
+CONF_THRESH = 0.6
 
 A = (934, 539); B = (55, 878)
 
@@ -130,5 +130,3 @@ def index():
     
 if __name__ == "__main__":
     app.run(host = '0.0.0.0', port=1909, debug = False)
-        
-                        

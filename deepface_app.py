@@ -5,9 +5,9 @@ from flask import Flask, Response
 from deepface import DeepFace
 
 # ===================== CONFIG =====================
-VIDEO_PATH = "input/cam2_2.mp4"
-MODEL_PATH = "weight/yolo11n.pt"
-FACE_MODEL = "weight/yolov8s-face.pt"
+VIDEO_PATH = "input/cam1_2.mp4"
+MODEL_PATH = "weights/yolo11n.pt"
+FACE_MODEL = "weights/yolov12n-face.pt"
 TRACKER_YAML = "botsort.yaml"
 ROI_POINTS = np.array([[1257,664], [1769,811], [1716,1200], [959,1200]]) # cam2
 
@@ -178,7 +178,7 @@ def main():
     while True:
         ok, frame = cap.read()
         if not ok: break
-        results = model.track(frame, persist=True, tracker=TRACKER_YAML, conf=CONF_THRESH, classes=[0])
+        results = model.track(frame, persist=True, conf=CONF_THRESH, classes=[0])
         if not results or not hasattr(results[0],"boxes"): continue
         annotated = proccess_frame(frame, results, face_model, tracker_data, person_info_cache, roi_poly, fps, frame_idx, w, h)
         writer.write(annotated)
