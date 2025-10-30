@@ -2,10 +2,10 @@
 tracker_type: botsort
 
 track_high_thresh: 0.4
-track_low_thresh: 0.05
-new_track_thresh: 0.7
-track_buffer: 90               # tăng số frame lưu lại track cũ (mặc định 30–60)
-match_thresh: 0.8              # tăng nhẹ để tracker kiên định hơn khi matching IoU
+track_low_thresh: 0.1
+new_track_thresh: 0.4
+track_buffer: 70               # tăng số frame lưu lại track cũ (mặc định 30–60)
+match_thresh: 0.7              # tăng nhẹ để tracker kiên định hơn khi matching IoU
 fuse_score: True
 
 gmc_method: None

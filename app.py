@@ -2,8 +2,8 @@
 import pandas as pd
 import os
 
-CSV = "face_analysis.csv"
-IMG_FOLDER = "static/face"
+IMG_FOLDER = "static/face_full_075"
+CSV = "face_full_075_analysis.csv"
 
 app = Flask(__name__)
 @app.route("/")
@@ -13,7 +13,7 @@ def dashboard():
     df["Gender"] = df["Gender"].str.capitalize()
     #df["ImagePath"] = df["Filename"].apply(lambda x: os.path.join(IMG_FOLDER,x))
     df["ImagePath"] = df["Filename"].apply(
-        lambda x: os.path.join(IMG_FOLDER, x.replace("faces_out/",""))
+        lambda x: os.path.join(IMG_FOLDER, x.replace("face_full/",""))
     )
     selected_gender = request.args.get("gender", "All")
     if selected_gender != "All":

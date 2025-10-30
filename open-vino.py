@@ -6,21 +6,21 @@ from openvino import Core
 
 # ===================== CONFIG =====================
 VIDEO_PATH = "input/cam2_2.mp4"
-MODEL_PATH = "weight/yolo11n.pt"
-FACE_MODEL = "weight/yolov8s-face.pt"
+MODEL_PATH = "weights/yolo11n.pt"
+FACE_MODEL = "weights/yolov12n-face.pt"
 TRACKER_YAML = "botsort.yaml"
 ROI_POINTS = np.array([[1257,664], [1769,811], [1716,1200], [959,1200]]) # cam2
 
 OUTPUT_DIR = "out/"
-CONF_THRESH = 0.5
-FACE_CONF = 0.5
+CONF_THRESH = 0.8
+FACE_CONF = 0.8
 FACE_IMGSZ = 640
 FACE_QUEUE = queue.Queue(maxsize=20)  # hàng đợi ảnh gửi cho DeepFace
 
 app = Flask(__name__)
 
 ie = Core()
-age_gender_model = ie.read_model(model="weight/age-gender-recognition-retail-0013.xml")
+age_gender_model = ie.read_model(model="weights/age-gender-recognition-retail-0013.xml")
 compiled_model = ie.compile_model(age_gender_model, device_name = "CPU")
 age_output = compiled_model.output("age_conv3") if "age_conv3" in [o.get_any_name() for o in compiled_model.outputs] else compiled_model.output("fc3_a")
 gender_output = compiled_model.output("prob")

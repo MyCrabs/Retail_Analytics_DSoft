@@ -8,7 +8,7 @@ from ultralytics import YOLO
 VIDEO_PATH = "input/cam2_2.mp4"
 MODEL_PATH = "weights/yolo11m.pt"
 TRACKER_PATH = "BotSort_me.yaml"
-CONF_THRESH = 0.6
+CONF_THRESH = 0.7
 
 A = (934, 539); B = (55, 878)
 
@@ -75,8 +75,8 @@ def generate_frames():
             frame,
             persist = True,
             conf = CONF_THRESH,
-            classes = [0]
-            #tracker = TRACKER_PATH
+            classes = [0],
+            tracker = "botsort.yaml"
         )
         draw_dashed_line(frame, A, B, color=(0,255,255), thickness=2)
         if res and len(res) >0:
@@ -89,8 +89,8 @@ def generate_frames():
                     cx, cy = (x1+x2) //2, int(y2 - 0.05 * (y2 - y1))
                     
                     cv2.rectangle(frame,(x1,y1), (x2,y2),(255,255,255),2)
-                    cv2.putText(frame, f"ID:{tid}", (x1, y1-5),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255),2)
+                    # cv2.putText(frame, f"ID:{tid}", (x1, y1-5),
+                    #             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,255,255),2)
                     crossed, direction, color = check_line_cross(
                         tid, cx, cy, last_centroid, last_side,
                         last_cross_frame, frame_idx, v_norm, A, B, MIN_GAP_FRAMES

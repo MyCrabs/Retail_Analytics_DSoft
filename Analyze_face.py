@@ -3,8 +3,8 @@ import os
 import csv
 from tqdm import tqdm
 
-INPUT_DIR = "faces_out"
-OUTPUT_CSV = "faces_out.csv"
+INPUT_DIR = "face_full_075"
+OUTPUT_CSV = "face_full_075_analysis.csv"
 
 with open(OUTPUT_CSV, mode = "w", newline="", encoding="utf-8") as f:
     writer = csv.writer(f)
