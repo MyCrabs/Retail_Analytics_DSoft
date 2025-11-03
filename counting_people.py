@@ -8,9 +8,9 @@ from ultralytics import YOLO
 VIDEO_PATH = "input/cam2_2.mp4"
 MODEL_PATH = "weights/yolo11m.pt"
 TRACKER_PATH = "BotSort_me.yaml"
-CONF_THRESH = 0.7
+CONF_THRESH = 0.65
 
-A = (934, 539); B = (55, 878)
+A = (997, 563); B = (95, 946)
 
 app = Flask(__name__)
 
@@ -75,8 +75,8 @@ def generate_frames():
             frame,
             persist = True,
             conf = CONF_THRESH,
-            classes = [0],
-            tracker = "botsort.yaml"
+            classes = [0]
+            #tracker = TRACKER_PATH
         )
         draw_dashed_line(frame, A, B, color=(0,255,255), thickness=2)
         if res and len(res) >0:

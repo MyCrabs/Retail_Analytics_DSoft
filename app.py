@@ -2,8 +2,8 @@
 import pandas as pd
 import os
 
-IMG_FOLDER = "static/face_full_075"
-CSV = "face_full_075_analysis.csv"
+IMG_FOLDER = "static/face_full"
+CSV = "face_full_openvino_analysis.csv"
 
 app = Flask(__name__)
 @app.route("/")

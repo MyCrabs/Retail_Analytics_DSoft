@@ -1,34 +1,25 @@
 ﻿from moviepy.editor import VideoFileClip
 
-# === Nhập đường dẫn video ===
-input_path = "input/cam1.mp4"      # thay bằng tên thật của bạn
-output_path = "input/cam1_2.mp4"
+input = "input/Dsoft_after.mp4"
+output = "input/after_lunch.mp4"
 
-# === Mở video ===
-video = VideoFileClip(input_path)
+video = VideoFileClip(input)
+duration = video.duration
+print(f"Tổng thời lượng video: {duration/60:.2f} phut ({duration:.0f} giay)")
 
-# === Lấy tổng thời lượng video ===
-duration = video.duration  # tính bằng giây
-print(f"⏱️ Tổng thời lượng: {duration/60:.2f} phút ({duration:.0f} giây)")
+start_time = 6 * 60 + 50
+end_time = 8 * 60 + 50
 
-# === Xác định khoảng cần cắt ===
-start_time = 10 * 60      # phút 9 -> 540 giây
-end_time = duration      # đến hết video
+if end_time > duration:
+    end_time = duration
+if start_time >= end_time:
+    raise ValueError('Khoang thoi gian cat ko phu hop')
 
-# Kiểm tra nếu video ngắn hơn
-if start_time >= duration:
-    raise ValueError("Video ngắn hơn 9 phút, không thể cắt đoạn này!")
-
-# === Cắt đoạn video cần giữ ===
 final_clip = video.subclip(start_time, end_time)
-
-# === Xuất video ===
 final_clip.write_videofile(
-    output_path,
-    codec="libx264",       # nén H.264 phổ biến
-    audio_codec="aac",     # giữ âm thanh
-    preset="medium",       # tốc độ xử lý
-    bitrate="3000k"        # chất lượng hợp lý
+    output,
+    codec = "libx264",
+    preset = 'medium',
+    bitrate = '3000k'
 )
-
-print(f"✅ Đã cắt xong! File lưu tại: {output_path}")
+print(f"Da cat xong file va luu tai {output}")
