@@ -1,30 +1,43 @@
-﻿from moviepy.editor import VideoFileClip
+﻿from ultralytics import YOLO
+import cv2
 
-input_path = "input/cam1.mp4"
-output_path = "input/cam1_cut.mp4"
+VIDEO_PATH = "input/video.mp4"     
+MODEL_PATH = "yolov8n-face.pt"     
+OUTPUT_PATH = "output_face.mp4"    
 
-video = VideoFileClip(input_path)
-duration = video.duration
-print(f"⏱️ Tổng thời lượng: {duration/60:.2f} phút ({duration:.0f} giây)")
+model = YOLO(MODEL_PATH)
+cap = cv2.VideoCapture(VIDEO_PATH)
 
-# Cắt từ 6 phút 50s đến 8 phút 50s
-start_time = 6 * 60 + 50   # 410 giây
-end_time   = 8 * 60 + 50   # 530 giây
+if not cap.isOpened():
+    raise RuntimeError(f"Không thể mở video {VIDEO_PATH}")
 
-# Kiểm tra
-if end_time > duration:
-    end_time = duration
-if start_time >= end_time:
-    raise ValueError("Khoảng thời gian cắt không hợp lệ!")
+fps = int(cap.get(cv2.CAP_PROP_FPS))
+w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-final_clip = video.subclip(start_time, end_time)
+fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+out = cv2.VideoWriter(OUTPUT_PATH, fourcc, fps, (w, h))
 
-final_clip.write_videofile(
-    output_path,
-    codec="libx264",
-    audio_codec="aac",
-    preset="medium",
-    bitrate="3000k"
-)
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
 
-print(f"🎬 Đã cắt xong! File lưu tại: {output_path}")
+    # Dự đoán khuôn mặt
+    results = model.predict(frame, conf=0.5, verbose=False)
+
+    # Vẽ box
+    annotated_frame = results[0].plot()
+
+    # Ghi ra file và hiển thị
+    out.write(annotated_frame)
+    cv2.imshow("Face Detection", annotated_frame)
+
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# ======= DỌN DẸP =======
+cap.release()
+out.release()
+cv2.destroyAllWindows()
+print(f"Video đã lưu tại: {OUTPUT_PATH}")
