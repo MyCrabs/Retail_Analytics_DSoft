@@ -1,43 +1,63 @@
-﻿from ultralytics import YOLO
+﻿from flask import Flask, render_template_string, Response, request
 import cv2
 
-VIDEO_PATH = "input/video.mp4"     
-MODEL_PATH = "yolov8n-face.pt"     
-OUTPUT_PATH = "output_face.mp4"    
+app = Flask(__name__)
 
-model = YOLO(MODEL_PATH)
+VIDEO_PATH = "input/after_lunch_1.mp4"
 cap = cv2.VideoCapture(VIDEO_PATH)
 
-if not cap.isOpened():
-    raise RuntimeError(f"Không thể mở video {VIDEO_PATH}")
+# ========== TEMPLATE HTML ==========
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Click ROI Points</title>
+</head>
+<body style="text-align:center; background:#111; color:white;">
+    <h2>Chọn ROI bằng cách click vào video</h2>
+    <p>Click trên video để lấy tọa độ (hiện ra trong terminal VSCode)</p>
+    <img id="video" src="/video_feed" style="border:2px solid white; cursor: crosshair;" />
+    <script>
+    document.getElementById("video").addEventListener("click", function(e) {
+        var rect = this.getBoundingClientRect();
+        var x = e.clientX - rect.left;
+        var y = e.clientY - rect.top;
+        // Gửi toạ độ về Flask
+        fetch(`/click?x=${x}&y=${y}`);
+    });
+    </script>
+</body>
+</html>
+"""
 
-fps = int(cap.get(cv2.CAP_PROP_FPS))
-w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+# ========== STREAM VIDEO ==========
+def generate_frames():
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            continue
+        _, buffer = cv2.imencode('.jpg', frame)
+        frame = buffer.tobytes()
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
-fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-out = cv2.VideoWriter(OUTPUT_PATH, fourcc, fps, (w, h))
+@app.route('/')
+def index():
+    return render_template_string(HTML_TEMPLATE)
 
-while True:
-    ret, frame = cap.read()
-    if not ret:
-        break
+@app.route('/video_feed')
+def video_feed():
+    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
-    # Dự đoán khuôn mặt
-    results = model.predict(frame, conf=0.5, verbose=False)
+# ========== NHẬN TỌA ĐỘ CLICK ==========
+@app.route('/click')
+def click():
+    x = request.args.get('x', type=float)
+    y = request.args.get('y', type=float)
+    print(f"Clicked at: ({x:.1f}, {y:.1f})")
+    return ('', 204)  # Trả về rỗng
 
-    # Vẽ box
-    annotated_frame = results[0].plot()
-
-    # Ghi ra file và hiển thị
-    out.write(annotated_frame)
-    cv2.imshow("Face Detection", annotated_frame)
-
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
-
-# ======= DỌN DẸP =======
-cap.release()
-out.release()
-cv2.destroyAllWindows()
-print(f"Video đã lưu tại: {OUTPUT_PATH}")
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=1909, debug=False)

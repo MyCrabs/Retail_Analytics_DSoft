@@ -1,25 +1,25 @@
 ﻿from moviepy.editor import VideoFileClip
 
-input = "input/Dsoft_after.mp4"
-output = "input/after_lunch.mp4"
+input = "input/after_lunch.mp4"
+output = "input/after_lunch_1.mp4"
 
 video = VideoFileClip(input)
 duration = video.duration
-print(f"Tổng thời lượng video: {duration/60:.2f} phut ({duration:.0f} giay)")
+print(f"Total time of video {duration/60:.2f} minutes {duration:.0f} seconds")
 
-start_time = 6 * 60 + 50
-end_time = 8 * 60 + 50
+start_time = 6 * 60 - 5
+end_time = 9 * 60 + 5
 
 if end_time > duration:
     end_time = duration
-if start_time >= end_time:
-    raise ValueError('Khoang thoi gian cat ko phu hop')
+elif start_time > end_time:
+    raise ValueError("Unsuitable Time Setting")
 
-final_clip = video.subclip(start_time, end_time)
-final_clip.write_videofile(
+final = video.subclip(start_time, end_time)
+final.write_videofile(
     output,
-    codec = "libx264",
-    preset = 'medium',
-    bitrate = '3000k'
+    codec = 'libx264',
+    preset = 'slow',
+    bitrate = '4000k'
 )
-print(f"Da cat xong file va luu tai {output}")
+print(f"Done Save File in {output}")
