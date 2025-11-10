@@ -1,83 +1,35 @@
-import cv2, dlib, numpy as np, os, matplotlib.pyplot as plt
+from gfpgan import GFPGANer
+THIRD_DIR = "face_padding_roi"
+IMAGES_PER_ROW = 10
+# Nhom anh theo id
+groups_roi = defaultdict(list)
+pattern = re.compile(r"face_id(\d+)_")
 
-# === Load models ===
-detector = dlib.get_frontal_face_detector()
-predictor = dlib.shape_predictor("weights/shape_predictor_68_face_landmarks.dat")
+for file in sorted(os.listdir(THIRD_DIR)):
+    match = pattern.search(file)
+    if match:
+        tid = int(match.group(1))
+        groups_roi[tid].append(file)
 
-# === 3D face model points (chuẩn khuôn mặt người trung bình) ===
-model_points = np.array([
-    (0.0, 0.0, 0.0),            # Mũi
-    (0.0, -330.0, -65.0),       # Cằm
-    (-225.0, 170.0, -135.0),    # Mắt trái
-    (225.0, 170.0, -135.0),     # Mắt phải
-    (-150.0, -150.0, -125.0),   # Mép trái
-    (150.0, -150.0, -125.0)     # Mép phải
-])
+if not groups_roi:
+    print("Không tìm thấy ảnh trong thư mục.")
+else:
+    print(f"Tìm thấy {len(groups_roi)} ID trong thư mục {THIRD_DIR}")
 
-def get_head_pose(image):
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    faces = detector(gray)
-    for face in faces:
-        shape = predictor(gray, face)
-        image_points = np.array([
-            (shape.part(30).x, shape.part(30).y), # Mũi
-            (shape.part(8).x, shape.part(8).y),   # Cằm
-            (shape.part(36).x, shape.part(36).y), # Mắt trái
-            (shape.part(45).x, shape.part(45).y), # Mắt phải
-            (shape.part(48).x, shape.part(48).y), # Mép trái
-            (shape.part(54).x, shape.part(54).y)  # Mép phải
-        ], dtype="double")
+    for tid, files in sorted(groups_roi.items()):
+        n_imgs = len(files)
+        n_rows = math.ceil(n_imgs / IMAGES_PER_ROW)
+        plt.figure(figsize=(3 * IMAGES_PER_ROW, 3 * n_rows))
+        for idx, fname in enumerate(files):
+            img = cv2.imread(os.path.join(THIRD_DIR, fname))
+            if img is None:
+                continue
 
-        focal_length = image.shape[1]
-        center = (image.shape[1]/2, image.shape[0]/2)
-        camera_matrix = np.array([
-            [focal_length, 0, center[0]],
-            [0, focal_length, center[1]],
-            [0, 0, 1]
-        ], dtype="double")
+            plt.subplot(n_rows, IMAGES_PER_ROW, idx + 1)
+            plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+            plt.title(f"{fname}", fontsize=6)
+            plt.axis("off")
 
-        dist_coeffs = np.zeros((4,1))
-        success, rotation_vector, translation_vector = cv2.solvePnP(
-            model_points, image_points, camera_matrix, dist_coeffs, flags=cv2.SOLVEPNP_ITERATIVE
-        )
-
-        if not success:
-            return None, None, None
-
-        rmat, _ = cv2.Rodrigues(rotation_vector)
-        pose_mat = cv2.hconcat((rmat, translation_vector))
-        _, _, _, _, _, _, euler_angles = cv2.decomposeProjectionMatrix(pose_mat)
-        yaw, pitch, roll = euler_angles.flatten()
-        return float(yaw), float(pitch), float(roll)
-    return None, None, None
-
-# === Thư mục ảnh cần kiểm tra ===
-IMG_DIR = 'face_padding_roi_clahe_restore'
-
-# === Hiển thị từng ảnh kèm góc lệch ===
-file_list = sorted([f for f in os.listdir(IMG_DIR) if f.lower().endswith(('.jpg','.png','.jpeg'))])
-n_show = len(file_list)
-cols = 6
-rows = int(np.ceil(n_show / cols))
-
-plt.figure(figsize=(16, rows * 3))
-
-for idx, fname in enumerate(file_list[:n_show]):
-    path = os.path.join(IMG_DIR, fname)
-    img = cv2.imread(path)
-    if img is None:
-        continue
-
-    yaw, pitch, roll = get_head_pose(img)
-    if yaw is None:
-        title = f"{fname}\nKhông phát hiện mặt"
-    else:
-        title = f"{fname}\nYaw={yaw:.1f}°, Pitch={pitch:.1f}°, Roll={roll:.1f}°"
-
-    plt.subplot(rows, cols, idx+1)
-    plt.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-    plt.title(title, fontsize=8)
-    plt.axis("off")
-
-plt.tight_layout()
-plt.show()
+        plt.suptitle(f"ID {tid} - Tổng {n_imgs} ảnh", fontsize=10, y=1.02)
+        plt.tight_layout()
+        plt.show()
